@@ -383,7 +383,7 @@ def get_suggestion():
                 break
         
         possible_suggestions.extend(SUGGESTION_MAP[suggestion_key])
-        .extend(SUGGESTION_MAP['general'])
+        possible_suggestions.extend(SUGGESTION_MAP['general'])
         
         # Filter out suggestions for habits the user *already* tracks
         filtered_suggestions = []
@@ -417,6 +417,7 @@ if __name__ == '__main__':
     # Then run the server
     # Set debug=False for production!
     app.run(host='0.0.0.0', port=5000, debug=False)
+
 
 
 
