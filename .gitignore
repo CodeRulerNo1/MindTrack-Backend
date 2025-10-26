@@ -1,0 +1,13 @@
+Python
+
+venv/
+*.pyc
+pycache/
+
+Secrets
+
+*.env
+
+serviceAccountKey.json
+
+^^^ We are commenting this out ON PURPOSE for the hackathon deployment
