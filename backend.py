@@ -7,6 +7,7 @@ import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 import base64 
+from functools import wraps # <--- THIS IS THE FIX
 
 # --- Firebase Setup ---
 # (This auth code is correct and working)
@@ -105,7 +106,6 @@ def calculate_stats(userId):
             
     return {"total_days": total_days, "best_habit": best_habit.capitalize(), "current_streak": current_streak, "total_habits_completed": total_habits_completed, "streak_emoji": streak_emoji}
 
-# --- ======== THIS IS THE FIX ======== ---
 
 def _get_all_habits(userId):
     """
@@ -121,19 +121,27 @@ def _get_all_habits(userId):
         habits.append(habit_data)
     return habits
 
-# --- ======== Endpoints ======== ---
+# --- ======== THIS IS THE FIX ======== ---
 def db_operation(func):
-    """Wrapper to catch errors and handle user ID."""
-    try:
-        userId = request.headers.get('X-User-Id')
-        if not userId:
-            return jsonify({"error": "Missing X-User-Id header"}), 400
-        get_or_create_user_data(userId) 
-        return func(userId)
-    except Exception as e:
-        # Use repr(e) to get more detailed error info in logs
-        print(f"Error in endpoint {request.path}: {repr(e)}")
-        return jsonify({"error": "An internal server error occurred."}), 500
+    """
+    Wrapper to catch errors and handle user ID.
+    This now returns a proper wrapper function.
+    """
+    @wraps(func)
+    def wrapper_function(*args, **kwargs):
+        try:
+            userId = request.headers.get('X-User-Id')
+            if not userId:
+                return jsonify({"error": "Missing X-User-Id header"}), 400
+            get_or_create_user_data(userId) 
+            # Pass the userId to the decorated function
+            return func(userId, *args, **kwargs)
+        except Exception as e:
+            # Use repr(e) to get more detailed error info in logs
+            print(f"Error in endpoint {request.path}: {repr(e)}")
+            return jsonify({"error": "An internal server error occurred."}), 500
+    return wrapper_function
+# --- ======== END OF FIX ======== ---
 
 @app.route('/')
 def home():
