@@ -41,3 +41,4 @@ It's a **Flask** server that uses **Firebase Firestore** as a NoSQL cloud databa
     * Create a Firebase project at [firebase.google.com](https://firebase.google.com/).
     * Enable the **Firestore Database** (start in **test mode**).
     * Go to Project
+![Screenshot Image](/img/screenshot-2025-10-26_13-58-25.png)
