@@ -7,7 +7,7 @@ import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 import base64 
-from functools import wraps # <--- THIS IS THE FIX
+from functools import wraps
 
 # --- Firebase Setup ---
 # (This auth code is correct and working)
@@ -38,6 +38,7 @@ CORS(app, expose_headers=['X-User-Id'])
 
 # --- Firestore Collection References ---
 APP_ID = "mindtrack-hackathon-v2-users" 
+META_DOC_ID = "_user_metadata" # <-- THIS IS THE FIX. Changed from '__meta__'
 
 def get_user_collections(userId):
     """Returns the specific collection references for a given user."""
@@ -52,7 +53,9 @@ def get_or_create_user_data(userId):
     Checks if a user exists. If not, creates their default habits.
     """
     HABITS_COL, LOGS_COL = get_user_collections(userId)
-    meta_doc_ref = LOGS_COL.document('__meta__')
+    
+    # Check for the user's meta doc
+    meta_doc_ref = LOGS_COL.document(META_DOC_ID) # <-- THIS IS THE FIX
     meta_doc = meta_doc_ref.get()
     
     if not meta_doc.exists:
@@ -78,7 +81,7 @@ def calculate_stats(userId):
     total_days, habit_counts, logged_dates, total_habits_completed = 0, {}, set(), 0
 
     for doc in log_docs:
-        if doc.id == '__meta__': continue
+        if doc.id == META_DOC_ID: continue # <-- THIS IS THE FIX
         row, log_date_str = doc.to_dict(), doc.id 
         logged_dates.add(log_date_str); total_days += 1
         try:
@@ -227,7 +230,7 @@ def get_logs(userId):
     docs = LOGS_COL.stream()
     logs = {}
     for doc in docs:
-        if doc.id == '__meta__': continue 
+        if doc.id == META_DOC_ID: continue  # <-- THIS IS THE FIX
         row = doc.to_dict()
         try:
             habits = json.loads(row['habits_json'])
@@ -270,7 +273,7 @@ def get_friend_stats():
         # We must check if the user exists *before* calculating stats
         # by checking for their meta document.
         _, LOGS_COL = get_user_collections(friendId)
-        meta_doc = LOGS_COL.document('__meta__').get()
+        meta_doc = LOGS_COL.document(META_DOC_ID).get() # <-- THIS IS THE FIX
         
         if not meta_doc.exists:
             return jsonify({"error": "Friend not found"}), 404
