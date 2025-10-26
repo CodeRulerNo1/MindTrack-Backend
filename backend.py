@@ -6,17 +6,41 @@ import random
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore
+import base64 # <-- NEW: For decoding the key
+from dotenv import load_dotenv # <-- NEW: To load .env locally (won't be used on Render)
 
 # --- Firebase Setup ---
-# This looks for the "serviceAccountKey.json" file you downloaded
+# THIS IS THE NEW AUTHENTICATION METHOD
+# It reads the key from the environment variable you just set on Render
+
 try:
-    cred = credentials.Certificate("serviceAccountKey.json")
+    # 1. Try to get the Base64 key from Render's environment
+    base64_key = os.environ.get('FIREBASE_SERVICE_ACCOUNT_BASE64')
+    
+    if base64_key:
+        print("Found FIREBASE_SERVICE_ACCOUNT_BASE64 env variable. Decoding...")
+        # 2. Decode the Base64 string back into bytes, then into a string
+        decoded_key_bytes = base64.b64decode(base64_key)
+        decoded_key_str = decoded_key_bytes.decode('utf-8')
+        # 3. Parse the string into a JSON dictionary
+        key_dict = json.loads(decoded_key_str)
+        
+        # 4. Authenticate using the dictionary
+        cred = credentials.Certificate(key_dict)
+        print("Authentication successful using environment variable.")
+    else:
+        # 5. Fallback for local testing: load from file
+        print("FIREBASE_SERVICE_ACCOUNT_BASE64 not set. Falling back to 'serviceAccountKey.json' file...")
+        cred = credentials.Certificate("serviceAccountKey.json")
+        print("Authentication successful using file.")
+
     firebase_admin.initialize_app(cred)
     db = firestore.client()
     print("Firebase connection successful.")
+
 except Exception as e:
-    print(f"CRITICAL ERROR: Failed to initialize Firebase. Is 'serviceAccountKey.json' in the same folder? Error: {e}")
-    # The app will fail to start, which is correct.
+    print(f"CRITICAL ERROR: Failed to initialize Firebase. Error: {e}")
+    # This will stop the app from starting, which is correct.
     raise e
 
 # --- App Setup ---
@@ -24,8 +48,7 @@ app = Flask(__name__)
 CORS(app)
 
 # --- Firestore Collection References ---
-# This is the "correct" path structure for collaborative apps
-APP_ID = "mindtrack-hackathon-v1" # A unique name for your app's data
+APP_ID = "mindtrack-hackathon-v1" 
 HABITS_COL = db.collection(f'artifacts/{APP_ID}/public/data/habits')
 LOGS_COL = db.collection(f'artifacts/{APP_ID}/public/data/logs')
 
@@ -33,7 +56,6 @@ def init_db():
     """Initializes the database and creates default habits if they don't exist."""
     print("Initializing Firestore database...")
     
-    # We use a special 'meta' doc to see if we've run this before
     meta_doc_ref = LOGS_COL.document('__meta__')
     meta_doc = meta_doc_ref.get()
     
@@ -45,14 +67,11 @@ def init_db():
             {'name': 'Go for a 15-min walk', 'is_deletable': False, 'created_at': firestore.SERVER_TIMESTAMP}
         ]
         
-        # Use a batch write to add all habits
         batch = db.batch()
         for habit in default_habits:
-            # Auto-generate a document ID
             doc_ref = HABITS_COL.document() 
             batch.set(doc_ref, habit)
         
-        # Set the meta doc so we don't run this again
         batch.set(meta_doc_ref, {'default_habits_set': True})
         batch.commit()
         print("Default habits added successfully.")
@@ -63,8 +82,6 @@ def init_db():
 def calculate_stats():
     """Analyzes and returns user trends from Firestore."""
     
-    # Fetch all logs where at least one habit was logged
-    # Firestore doesn't have a "not empty" query, so we get all docs
     log_docs = LOGS_COL.where('habits_json', '!=', '[]').stream()
 
     total_days = 0
@@ -73,12 +90,11 @@ def calculate_stats():
     total_habits_completed = 0
 
     for doc in log_docs:
-        # Skip the meta doc
         if doc.id == '__meta__':
             continue
             
         row = doc.to_dict()
-        log_date_str = doc.id # The document ID is the date string
+        log_date_str = doc.id 
         logged_dates.add(log_date_str)
         total_days += 1
         
@@ -90,12 +106,10 @@ def calculate_stats():
         except (json.JSONDecodeError, KeyError):
             print(f"Warning: Skipping corrupt log entry for date {log_date_str}")
 
-    # Calculate Best Habit
     best_habit = "None yet"
     if habit_counts:
         best_habit = max(habit_counts, key=habit_counts.get)
 
-    # Calculate Current Streak
     current_streak = 0
     check_date = date.today()
     
@@ -111,7 +125,6 @@ def calculate_stats():
             current_streak += 1
             check_date -= timedelta(days=1)
             
-    # Streak Emoji
     streak_emoji = "😔"
     if 1 <= current_streak <= 3: streak_emoji = "😊"
     elif 4 <= current_streak <= 7: streak_emoji = "🔥"
@@ -148,7 +161,7 @@ def get_habits():
         habits = []
         for doc in docs:
             habit_data = doc.to_dict()
-            habit_data['id'] = doc.id # <-- CRITICAL: Send the Firestore Doc ID
+            habit_data['id'] = doc.id 
             habits.append(habit_data)
         return jsonify(habits), 200
     return db_operation(operation)
@@ -163,12 +176,10 @@ def add_habit():
         if not habit_name:
             return jsonify({"error": "Habit name is required"}), 400
         
-        # Check for duplicates
         existing = HABITS_COL.where('name', '==', habit_name).limit(1).get()
         if len(existing) > 0:
             return jsonify({"error": "This habit already exists"}), 409
 
-        # Add new habit
         new_habit_data = {
             'name': habit_name,
             'is_deletable': True,
@@ -176,7 +187,6 @@ def add_habit():
         }
         HABITS_COL.add(new_habit_data)
         
-        # Return the complete, updated list
         return get_habits()
     return db_operation(operation)
 
@@ -186,7 +196,7 @@ def delete_habit():
     """Deletes a habit by its Firestore Document ID."""
     def operation():
         data = request.get_json()
-        habit_id = data.get('id') # <-- This is now the Firestore Doc ID
+        habit_id = data.get('id') 
         if not habit_id:
             return jsonify({"error": "Habit ID is required"}), 400
 
@@ -196,10 +206,8 @@ def delete_habit():
         if not doc.exists:
              return jsonify({"error": "Habit not found"}), 404
              
-        # Check if it's deletable
         if doc.to_dict().get('is_deletable') == True:
             doc_ref.delete()
-            # Return the complete, updated list
             return get_habits()
         else:
             return jsonify({"error": "Cannot delete a default habit"}), 403
@@ -219,7 +227,7 @@ def get_today_logs():
             habits_list = json.loads(doc.to_dict().get('habits_json', '[]'))
             return jsonify(habits_list), 200
         else:
-            return jsonify([]), 200 # No log for today
+            return jsonify([]), 200 
     return db_operation(operation)
 
 
@@ -232,7 +240,6 @@ def log_habit():
         habits_as_json_string = json.dumps(habits_list)
         today_date_string = date.today().isoformat()
 
-        # Use .set() with merge=True to create or overwrite
         LOGS_COL.document(today_date_string).set({
             'habits_json': habits_as_json_string,
             'log_timestamp': firestore.SERVER_TIMESTAMP
@@ -250,12 +257,12 @@ def get_logs():
         docs = LOGS_COL.stream()
         logs = {}
         for doc in docs:
-            if doc.id == '__meta__': continue # Skip meta doc
+            if doc.id == '__meta__': continue 
             
             row = doc.to_dict()
             try:
                 habits = json.loads(row['habits_json'])
-                if habits: # Only include non-empty log days
+                if habits: 
                      logs[doc.id] = habits
             except (json.JSONDecodeError, KeyError):
                 print(f"Warning: Skipping corrupt calendar log for date {doc.id}")
@@ -287,22 +294,14 @@ def get_motivation():
         return jsonify({"message": message}), 200
     return db_operation(operation)
 
-# (I've removed /get_suggestion to simplify the rewrite, we can add it back if needed)
 @app.route('/get_suggestion', methods=['POST'])
 def get_suggestion():
     return jsonify({"suggestion": "Let's focus on consistency for now!"}), 200
 
 # --- Main ---
 if __name__ == '__main__':
+    # We run init_db() when the server starts
     init_db()
     # Get port from environment variable, default to 5000
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
-
-
-
-
-
-
